@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAMBAKERY — จัดการออเดอร์</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Prompt:wght@600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root { --brand:#C8474A; --brand-dark:#8B2E31; --gold:#D4A853; --bg:#FDF8F3; }
+        * { box-sizing:border-box; }
+        body { font-family:'Sarabun',sans-serif; background:var(--bg); min-height:100vh; }
+        h1,h2,h3 { font-family:'Prompt',sans-serif; }
+        .header-gradient { background:linear-gradient(135deg,#2d1f3d 0%,#1a1a2e 100%); box-shadow:0 4px 20px rgba(0,0,0,0.3); }
+        .logo-badge { background:linear-gradient(135deg,var(--gold),#b8892e); -webkit-background-clip:text; -webkit-text-fill-color:transparent; background-clip:text; }
+        .admin-nav-link { display:flex; align-items:center; gap:6px; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:600; color:rgba(255,255,255,0.6); transition:all 0.2s; white-space:nowrap; }
+        .admin-nav-link:hover { background:rgba(255,255,255,0.1); color:white; }
+        .admin-nav-link.current { background:rgba(255,255,255,0.15); color:white; }
+        .filter-btn { padding:6px 14px; border-radius:20px; font-size:13px; font-weight:600; border:1.5px solid #e5e7eb; background:white; transition:all 0.2s; white-space:nowrap; cursor:pointer; }
+        .filter-btn.active { background:var(--brand); color:white; border-color:var(--brand); }
+        .badge-received  { background:#fef3c7; color:#92400e; }
+        .badge-preparing { background:#dbeafe; color:#1e40af; }
+        .badge-ready     { background:#d1fae5; color:#065f46; }
+        .badge-delivered { background:#e5e7eb; color:#374151; }
+        .spinner { width:24px; height:24px; border:3px solid #f3f3f3; border-top:3px solid var(--brand); border-radius:50%; animation:spin 0.8s linear infinite; display:inline-block; }
+        @keyframes spin { to{transform:rotate(360deg)} }
+        #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1f2937; color:white; padding:12px 24px; border-radius:12px; font-size:14px; font-weight:600; z-index:999; white-space:nowrap; opacity:0; transition:opacity 0.3s; pointer-events:none; }
+        #toast.show { opacity:1; }
+        ::-webkit-scrollbar { width:4px; }
+        ::-webkit-scrollbar-thumb { background:#ccc; border-radius:4px; }
+        .search-box { background:white; border:1.5px solid #e5e7eb; border-radius:14px; padding:9px 16px; width:100%; font-family:'Sarabun',sans-serif; font-size:14px; }
+        .search-box:focus { outline:none; border-color:var(--brand); box-shadow:0 0 0 3px rgba(200,71,74,0.1); }
+        .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.55); backdrop-filter:blur(3px); z-index:100; display:flex; align-items:center; justify-content:center; padding:16px; }
+        .modal-box { background:white; width:100%; max-width:480px; border-radius:20px; max-height:85vh; overflow-y:auto; animation:fadeIn 0.2s ease; }
+        @keyframes fadeIn { from{opacity:0;transform:scale(0.96)} to{opacity:1;transform:scale(1)} }
+    </style>
+</head>
+<body class="pb-10">
+
+<!-- HEADER -->
+<header class="header-gradient text-white sticky top-0 z-50">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+        <div>
+            <div class="text-lg font-black tracking-tight">
+                <span class="logo-badge">MAM</span><span class="text-white">BAKERY</span>
+                <span class="text-white/40 text-sm font-normal ml-2">— หลังบ้าน</span>
+            </div>
+        </div>
+        <!-- Nav links to other pages -->
+        <div class="flex gap-1">
+            <a href="customer.html" class="admin-nav-link">🛍 สั่งสินค้า</a>
+            <a href="admin.html" class="admin-nav-link current">📦 ออเดอร์</a>
+            <a href="report.html" class="admin-nav-link">📊 รายงาน</a>
+        </div>
+    </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-3 pt-5">
+
+    <!-- Title + Actions -->
+    <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+        <div>
+            <h2 class="text-xl font-black text-gray-800">📦 จัดการออเดอร์</h2>
+            <p id="order-summary-text" class="text-xs text-gray-400 mt-0.5">กดรีเฟรชเพื่อโหลดข้อมูล</p>
+        </div>
+        <div class="flex gap-2">
+            <input id="search-order" type="search" placeholder="🔍 ค้นหาชื่อ / เลขออเดอร์" class="search-box" style="width:200px" oninput="renderOrders()">
+            <button onclick="loadOrders()" id="btn-refresh" class="bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold px-4 py-2 rounded-xl transition flex items-center gap-1">
+                ↺ รีเฟรช
+            </button>
+        </div>
+    </div>
+
+    <!-- Status Filter Tabs -->
+    <div class="flex gap-2 overflow-x-auto mb-5 pb-1">
+        <button onclick="setFilter('all')"        id="f-all"      class="filter-btn active text-xs">ทั้งหมด <span id="cnt-all"      class="ml-1 opacity-60"></span></button>
+        <button onclick="setFilter('ได้รับออเดอร์')"  id="f-new"      class="filter-btn text-xs">🟡 ใหม่ <span id="cnt-new"      class="ml-1 opacity-60"></span></button>
+        <button onclick="setFilter('กำลังเตรียมของ')" id="f-prep"     class="filter-btn text-xs">🔵 เตรียมของ <span id="cnt-prep"  class="ml-1 opacity-60"></span></button>
+        <button onclick="setFilter('พร้อมส่ง')"   id="f-ready"    class="filter-btn text-xs">🟢 พร้อมส่ง <span id="cnt-ready" class="ml-1 opacity-60"></span></button>
+        <button onclick="setFilter('จัดส่งแล้ว')" id="f-done"     class="filter-btn text-xs">⚫ จัดส่งแล้ว <span id="cnt-done"  class="ml-1 opacity-60"></span></button>
+    </div>
+
+    <!-- Orders List -->
+    <div id="orders-container" class="space-y-3">
+        <div class="text-center py-16 text-gray-400">
+            <div class="text-4xl mb-3">📋</div>
+            <p class="text-sm">กดปุ่ม "รีเฟรช" เพื่อโหลดออเดอร์</p>
+            <p class="text-xs text-gray-300 mt-1">หรือตั้งค่า GOOGLE_SCRIPT_URL ในไฟล์นี้ก่อน</p>
+        </div>
+    </div>
+</main>
+
+<!-- ORDER DETAIL MODAL -->
+<div id="detail-modal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+        <div class="px-5 pt-5 pb-4 border-b flex justify-between items-center">
+            <h3 class="font-black text-lg">รายละเอียดออเดอร์</h3>
+            <button onclick="closeDetail()" class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-200">✕</button>
+        </div>
+        <div id="detail-content" class="p-5"></div>
+    </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+//  ⚙️  CONFIG
+// ============================================================
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxuKDz4QeLDNTe5sUyl3uV9wxnA8Yn4-Cf0t7jI3gKZXs9lg-kF3dIaNai65iPCU5Q/exec";
+
+let allOrders = [];
+let activeFilter = 'all';
+
+// ============================================================
+//  🔃  LOAD ORDERS
+// ============================================================
+async function loadOrders() {
+    const btn = document.getElementById('btn-refresh');
+    const container = document.getElementById('orders-container');
+    btn.innerHTML = '<span class="spinner w-4 h-4"></span>';
+    btn.disabled = true;
+    container.innerHTML = '<div class="text-center py-12"><div class="spinner mx-auto"></div></div>';
+
+    if (GOOGLE_SCRIPT_URL) {
+        try {
+            const res = await fetch(GOOGLE_SCRIPT_URL + '?action=getOrders');
+            const data = await res.json();
+            allOrders = data.orders || [];
+        } catch (e) {
+            allOrders = getMockOrders();
+            showToast('⚠️ โหลดจาก Sheet ไม่ได้ — แสดงข้อมูลตัวอย่าง');
+        }
+    } else {
+        allOrders = getMockOrders();
+    }
+
+    renderOrders();
+    btn.innerHTML = '↺ รีเฟรช';
+    btn.disabled = false;
+}
+
+function getMockOrders() {
+    return [
+        {orderId:'MB-992341',name:'คุณสมใจ รักขนม',phone:'081-234-5678',note:'',total:170,status:'ได้รับออเดอร์',timestamp:'16 มี.ค. 2568 14:30',items:[{id:'A01',name:'เนยสด (5)',qty:10,price:4,subtotal:40},{id:'D02',name:'ไส้กรอก (20)',qty:5,price:18,subtotal:90},{id:'B08',name:'เผือก (10)',qty:5,price:8,subtotal:40}]},
+        {orderId:'MB-992342',name:'คุณมาลี สุขใจ',phone:'089-876-5432',note:'ห่อของขวัญด้วย',total:194,status:'กำลังเตรียมของ',timestamp:'16 มี.ค. 2568 15:00',items:[{id:'L01',name:'เค้กโบราณ (60)',qty:2,price:52,subtotal:104},{id:'G01',name:'พายเม็ดมะม่วง (35)',qty:3,price:30,subtotal:90}]},
+        {orderId:'MB-992343',name:'คุณวิชัย ใจดี',phone:'062-111-2233',note:'',total:320,status:'พร้อมส่ง',timestamp:'15 มี.ค. 2568 09:00',items:[{id:'M01',name:'เปี๊ยะใหญ่ (100)',qty:2,price:80,subtotal:160},{id:'J01',name:'เค้กส้ม (50)',qty:4,price:40,subtotal:160}]},
+        {orderId:'MB-992340',name:'คุณนิดา ขันธ์ดี',phone:'081-999-7777',note:'',total:112,status:'จัดส่งแล้ว',timestamp:'15 มี.ค. 2568 08:30',items:[{id:'A03',name:'มายองเนส (5)',qty:10,price:4,subtotal:40},{id:'D19',name:'โดนัทสอดไส้ (20)',qty:4,price:18,subtotal:72}]},
+        {orderId:'MB-992339',name:'คุณพิชัย มั่นคง',phone:'099-555-4444',note:'',total:80,status:'จัดส่งแล้ว',timestamp:'14 มี.ค. 2568 10:15',items:[{id:'M01',name:'เปี๊ยะใหญ่ (100)',qty:1,price:80,subtotal:80}]},
+    ];
+}
+
+// ============================================================
+//  🔷  FILTER
+// ============================================================
+function setFilter(status) {
+    activeFilter = status;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    const map = {all:'all','ได้รับออเดอร์':'new','กำลังเตรียมของ':'prep','พร้อมส่ง':'ready','จัดส่งแล้ว':'done'};
+    document.getElementById('f-' + (map[status]||'all'))?.classList.add('active');
+    renderOrders();
+}
+
+// ============================================================
+//  🖥  RENDER
+// ============================================================
+function renderOrders() {
+    const search = document.getElementById('search-order').value.toLowerCase().trim();
+    let list = allOrders;
+    if (activeFilter !== 'all') list = list.filter(o => o.status === activeFilter);
+    if (search) list = list.filter(o =>
+        o.name?.toLowerCase().includes(search) ||
+        o.orderId?.toLowerCase().includes(search) ||
+        o.phone?.includes(search)
+    );
+
+    // Update counts
+    updateCounts();
+
+    const container = document.getElementById('orders-container');
+    if (!list.length) {
+        container.innerHTML = '<div class="text-center py-12 text-gray-400 text-sm">ไม่พบออเดอร์ที่ค้นหา</div>';
+        return;
+    }
+
+    const statusStyle = {'ได้รับออเดอร์':'badge-received','กำลังเตรียมของ':'badge-preparing','พร้อมส่ง':'badge-ready','จัดส่งแล้ว':'badge-delivered'};
+    const nextStatus  = {'ได้รับออเดอร์':'กำลังเตรียมของ','กำลังเตรียมของ':'พร้อมส่ง','พร้อมส่ง':'จัดส่งแล้ว'};
+    const nextLabel   = {'ได้รับออเดอร์':'▶ เริ่มเตรียมของ','กำลังเตรียมของ':'✅ พร้อมส่งแล้ว','พร้อมส่ง':'🚚 จัดส่งแล้ว'};
+    const nextColor   = {'ได้รับออเดอร์':'bg-blue-600 hover:bg-blue-700','กำลังเตรียมของ':'bg-green-600 hover:bg-green-700','พร้อมส่ง':'bg-rose-600 hover:bg-rose-700'};
+
+    container.innerHTML = list.map(o => {
+        const items = o.items || [];
+        const canAdvance = nextStatus[o.status];
+        const itemPreview = items.slice(0,3).map(i=>`<span class="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-0.5 rounded-full">${i.name} ×${i.qty}</span>`).join(' ');
+        const moreItems = items.length > 3 ? `<span class="text-xs text-gray-400">+${items.length-3} รายการ</span>` : '';
+        return `
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+            <div class="p-4">
+                <div class="flex justify-between items-start mb-3">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                            <p class="text-xs text-gray-400 font-mono">#${o.orderId}</p>
+                            <span class="text-xs px-2.5 py-0.5 rounded-full font-bold ${statusStyle[o.status]||'bg-gray-100 text-gray-600'}">${o.status}</span>
+                        </div>
+                        <h4 class="font-black text-gray-800 text-base">${o.name}</h4>
+                        <p class="text-xs text-gray-500">📞 ${o.phone||'-'}  🕐 ${o.timestamp||'-'}</p>
+                        ${o.note ? `<p class="text-xs text-amber-600 mt-1">📝 ${o.note}</p>` : ''}
+                    </div>
+                    <p class="text-rose-600 font-black text-xl ml-3">฿${(o.total||0).toLocaleString()}</p>
+                </div>
+                <!-- Item preview -->
+                <div class="flex flex-wrap gap-1 mb-3">${itemPreview}${moreItems}</div>
+                <!-- Action buttons -->
+                <div class="flex gap-2 flex-wrap">
+                    ${canAdvance ? `<button onclick="advanceOrder('${o.orderId}','${nextStatus[o.status]}')" class="text-xs ${nextColor[o.status]||'bg-rose-600'} text-white px-4 py-2 rounded-xl font-bold transition">${nextLabel[o.status]}</button>` : ''}
+                    <button onclick="showDetail('${o.orderId}')" class="text-xs bg-gray-100 text-gray-600 px-4 py-2 rounded-xl font-bold hover:bg-gray-200 transition">👁 ดูรายละเอียด</button>
+                    <button onclick="printInvoice('${o.orderId}')" class="text-xs bg-gray-100 text-gray-600 px-4 py-2 rounded-xl font-bold hover:bg-gray-200 transition">🖨 พิมพ์บิล</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+
+    const total = list.reduce((s,o) => s+(o.total||0), 0);
+    document.getElementById('order-summary-text').textContent = `แสดง ${list.length} ออเดอร์ · ยอดรวม ฿${total.toLocaleString()}`;
+}
+
+function updateCounts() {
+    document.getElementById('cnt-all').textContent  = allOrders.length;
+    document.getElementById('cnt-new').textContent  = allOrders.filter(o=>o.status==='ได้รับออเดอร์').length  || '';
+    document.getElementById('cnt-prep').textContent = allOrders.filter(o=>o.status==='กำลังเตรียมของ').length || '';
+    document.getElementById('cnt-ready').textContent= allOrders.filter(o=>o.status==='พร้อมส่ง').length       || '';
+    document.getElementById('cnt-done').textContent = allOrders.filter(o=>o.status==='จัดส่งแล้ว').length     || '';
+}
+
+// ============================================================
+//  ⏩  ADVANCE STATUS
+// ============================================================
+async function advanceOrder(orderId, newStatus) {
+    const order = allOrders.find(o => o.orderId === orderId);
+    if (!order) return;
+    order.status = newStatus;
+    renderOrders();
+    showToast(`✅ #${orderId} → ${newStatus}`);
+
+    if (GOOGLE_SCRIPT_URL) {
+        try {
+            await fetch(GOOGLE_SCRIPT_URL, {
+                method:'POST', mode:'no-cors',
+                body: JSON.stringify({action:'updateStatus', orderId, status:newStatus})
+            });
+        } catch(e) { console.warn(e); }
+    }
+}
+
+// ============================================================
+//  🔍  ORDER DETAIL MODAL
+// ============================================================
+function showDetail(orderId) {
+    const o = allOrders.find(x => x.orderId === orderId);
+    if (!o) return;
+    const statusStyle = {'ได้รับออเดอร์':'badge-received','กำลังเตรียมของ':'badge-preparing','พร้อมส่ง':'badge-ready','จัดส่งแล้ว':'badge-delivered'};
+    const itemRows = (o.items||[]).map(i => `
+        <tr class="border-b border-gray-50">
+            <td class="py-2 text-xs text-gray-500 font-mono">${i.id}</td>
+            <td class="py-2 text-sm">${i.name}</td>
+            <td class="py-2 text-sm text-center">${i.qty}</td>
+            <td class="py-2 text-sm text-right">฿${i.price}</td>
+            <td class="py-2 text-sm font-bold text-right text-rose-600">฿${(i.subtotal||i.qty*i.price).toLocaleString()}</td>
+        </tr>`).join('');
+
+    document.getElementById('detail-content').innerHTML = `
+        <div class="space-y-4">
+            <div class="flex justify-between items-start">
+                <div>
+                    <p class="text-xs text-gray-400 font-mono">#${o.orderId}</p>
+                    <h4 class="font-black text-lg text-gray-800">${o.name}</h4>
+                    <p class="text-sm text-gray-500">📞 ${o.phone||'-'}</p>
+                    <p class="text-xs text-gray-400">🕐 ${o.timestamp||'-'}</p>
+                    ${o.note ? `<p class="text-sm text-amber-600 mt-1">📝 ${o.note}</p>` : ''}
+                </div>
+                <span class="text-xs px-3 py-1 rounded-full font-bold ${statusStyle[o.status]||'bg-gray-100 text-gray-600'}">${o.status}</span>
+            </div>
+            <table class="w-full">
+                <thead><tr class="text-xs text-gray-400 border-b">
+                    <th class="pb-2 text-left">รหัส</th><th class="pb-2 text-left">รายการ</th>
+                    <th class="pb-2 text-center">จำนวน</th><th class="pb-2 text-right">ราคา</th>
+                    <th class="pb-2 text-right">รวม</th>
+                </tr></thead>
+                <tbody>${itemRows}</tbody>
+            </table>
+            <div class="flex justify-between items-center bg-rose-50 rounded-xl px-4 py-3">
+                <span class="font-bold text-gray-700">รวมทั้งสิ้น</span>
+                <span class="font-black text-rose-600 text-xl">฿${(o.total||0).toLocaleString()}</span>
+            </div>
+            <button onclick="printInvoice('${o.orderId}');closeDetail();" class="w-full bg-rose-600 text-white py-3 rounded-xl font-bold hover:bg-rose-700 transition">🖨 พิมพ์บิล PDF</button>
+        </div>`;
+    document.getElementById('detail-modal').style.display = 'flex';
+}
+
+function closeDetail() {
+    document.getElementById('detail-modal').style.display = 'none';
+}
+
+// ============================================================
+//  🧾  PRINT INVOICE
+// ============================================================
+function printInvoice(orderId) {
+    const o = allOrders.find(x => x.orderId === orderId);
+    if (!o) return;
+    const {jsPDF} = window.jspdf;
+    const doc = new jsPDF({unit:'mm', format:'a5'});
+    const W = 148, pad = 15;
+    doc.setFillColor(200,71,74);
+    doc.rect(0,0,W,38,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFontSize(22); doc.setFont('helvetica','bold');
+    doc.text('MAMBAKERY', W/2, 16, {align:'center'});
+    doc.setFontSize(9); doc.setFont('helvetica','normal');
+    doc.text('ใบส่งของ / ใบเสร็จรับเงิน  (สำเนา)', W/2, 24, {align:'center'});
+    doc.text(`Status: ${o.status}`, W/2, 32, {align:'center'});
+    doc.setTextColor(50,50,50); doc.setFontSize(8.5);
+    const y = 46;
+    doc.text(`Order ID : ${o.orderId}`, pad, y);
+    doc.text(`Date     : ${o.timestamp||'-'}`, pad, y+6);
+    doc.text(`Customer : ${o.name}`, pad, y+12);
+    doc.text(`Phone    : ${o.phone||'-'}`, pad, y+18);
+    if (o.note) doc.text(`Note     : ${o.note}`, pad, y+24);
+    const tableY = o.note ? y+30 : y+26;
+    doc.autoTable({
+        startY: tableY,
+        head:[['ID','รายการสินค้า','จำนวน','ราคา','รวม (฿)']],
+        body: (o.items||[]).map(i=>[i.id||'-', i.name, i.qty, i.price, i.subtotal||i.qty*i.price]),
+        foot:[['','','','รวมทั้งสิ้น',`฿${(o.total||0).toLocaleString()}`]],
+        margin:{left:pad, right:pad},
+        theme:'striped',
+        styles:{font:'helvetica', fontSize:8, cellPadding:2.5},
+        headStyles:{fillColor:[200,71,74], textColor:255, fontStyle:'bold'},
+        footStyles:{fillColor:[250,235,235], textColor:[180,30,30], fontStyle:'bold'},
+        columnStyles:{0:{cellWidth:14},1:{cellWidth:60},2:{cellWidth:16,halign:'center'},3:{cellWidth:22,halign:'right'},4:{cellWidth:22,halign:'right'}}
+    });
+    const finalY = doc.lastAutoTable.finalY + 8;
+    doc.setFontSize(8); doc.setTextColor(130,130,130);
+    doc.text('ขอบคุณที่ใช้บริการแหม่มเบเกอรี่ค่ะ 🧁', W/2, finalY, {align:'center'});
+    doc.save(`Invoice_${o.orderId}.pdf`);
+}
+
+// ============================================================
+//  🍞  TOAST
+// ============================================================
+let toastTimer;
+function showToast(msg) {
+    const el = document.getElementById('toast');
+    el.innerText = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+// ============================================================
+//  🏁  START — โหลดออเดอร์อัตโนมัติเมื่อเปิดหน้า
+// ============================================================
+window.onload = loadOrders;
+</script>
+</body>
+</html>
